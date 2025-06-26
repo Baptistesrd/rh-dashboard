@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/19cHR5fz_TT7j20v8Siq9QAWEd7EDZukvrd7ufZat750/export?format=csv&gid=0"  # ← Remplace TON_ID
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/19cHR5fz_TT7j20v8Siq9QAWEd7EDZukvrd7ufZat750/export?format=csv&gid=0"
+  # ← Remplace TON_ID
 
 @st.cache_data
 def load_data():
