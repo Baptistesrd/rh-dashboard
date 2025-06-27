@@ -10,6 +10,7 @@ SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12xFNjihxA6EY0yfLpevIrFg
 @st.cache_data
 def load_data():
     df = pd.read_csv(SHEET_CSV_URL, skiprows=4)
+    df.columns = df.columns.str.strip()
     df['Date d\'arrivée'] = pd.to_datetime(df['Date d\'arrivée'], dayfirst=True, errors='coerce')
     df['Date de fin (si applicable)'] = pd.to_datetime(df['Date de fin (si applicable)'], dayfirst=True, errors='coerce')
     df = df[df['Date d\'arrivée'].notna()]
