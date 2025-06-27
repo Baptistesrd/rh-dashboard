@@ -106,7 +106,7 @@ with tab2:
     with col1:
         kpi = df.groupby(["Mois arrivée", "Type de contrat"]).size().reset_index(name="Effectif")
         fig = px.bar(kpi, x="Mois arrivée", y="Effectif", color="Type de contrat", barmode="group", title="Effectifs par contrat et par mois")
-        fig.update_traces(marker_line_width=0, width=0.9)
+        fig.update_traces(marker_line_width=0, width=0.6)
         st.plotly_chart(fig, use_container_width=True)
 
     # 5. Tableau entrées / sorties par contrat et mois
