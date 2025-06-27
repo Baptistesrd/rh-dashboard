@@ -2,99 +2,111 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# === LIENS CSV GOOGLE SHEETS ===
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12xFNjihxA6EY0yfLpevIrFgqvWY9AwNtsRDJ3608hVI/export?format=csv&gid=1581748608"
-SHEET_SORTIES_CSV_URL = "https://docs.google.com/spreadsheets/d/12xFNjihxA6EY0yfLpevIrFgqvWY9AwNtsRDJ3608hVI/export?format=csv&gid=789133425"
+st.set_page_config(layout="wide", page_title="Dashboard RH")
 
-# === CHARGEMENT DES DONNÉES ===
+# URLs CSV publiques
+SHEET_CSV_URL_ARRIVEES = "https://docs.google.com/spreadsheets/d/12xFNjihxA6EY0yfLpevIrFgqvWY9AwNtsRDJ3608hVI/export?format=csv&gid=0"
+SHEET_CSV_URL_SORTIES = "https://docs.google.com/spreadsheets/d/12xFNjihxA6EY0yfLpevIrFgqvWY9AwNtsRDJ3608hVI/export?format=csv&gid=859310692"
+
+# Fonction pour charger les données
 @st.cache_data
 def load_data():
-    df = pd.read_csv(SHEET_CSV_URL, skiprows=4)
-    df.columns = df.columns.str.strip()
-    df = df.loc[:, ~df.columns.duplicated()]
-    df["Date d'arrivée"] = pd.to_datetime(df["Date d'arrivée"], dayfirst=True, errors="coerce")
-    df["Date de fin (si applicable)"] = pd.to_datetime(df["Date de fin (si applicable)"], dayfirst=True, errors="coerce")
-    return df
+    df_arrivees = pd.read_csv(SHEET_CSV_URL_ARRIVEES, skiprows=4)
+    df_sorties = pd.read_csv(SHEET_CSV_URL_SORTIES, skiprows=3)
+    return df_arrivees, df_sorties
 
-@st.cache_data
-def load_sorties():
-    df_sorties = pd.read_csv(SHEET_SORTIES_CSV_URL, skiprows=3)
-    df_sorties.columns = df_sorties.columns.str.strip()
-    df_sorties = df_sorties.loc[:, ~df_sorties.columns.duplicated()]
-    df_sorties["Date de départ prévue"] = pd.to_datetime(df_sorties["Date de départ prévue"], dayfirst=True, errors="coerce")
-    return df_sorties
+df, df_sorties = load_data()
 
-# === LOGIQUE METIER ===
+# Nettoyage des colonnes
+df.columns = df.columns.str.strip()
+df_sorties.columns = df_sorties.columns.str.strip()
+
+# Transformation des dates
+df["Date d'arrivée"] = pd.to_datetime(df["Date d'arrivée"], dayfirst=True, errors="coerce")
+df["Date de fin (si applicable)"] = pd.to_datetime(df["Date de fin (si applicable)"], dayfirst=True, errors="coerce")
+df_sorties["Date de départ prévue"] = pd.to_datetime(df_sorties["Date de départ prévue"], dayfirst=True, errors="coerce")
+
+# Fonction pour regrouper les pôles
 def regroup_pole(pole):
-    if pd.isna(pole):
-        return "Autres"
-    pole = pole.lower()
-    if "tech" in pole:
-        return "Tech"
-    elif "ops" in pole:
-        return "Ops"
-    elif "g&a" in pole or "finance" in pole or "admin" in pole:
-        return "G&A"
-    elif "sales" in pole:
-        return "Sales"
-    elif "marketing" in pole:
-        return "Marketing"
-    elif "codir" in pole or "comité" in pole:
-        return "CODIR"
-    elif "uk" in pole:
-        return "UK"
-    else:
-        return "Autres"
+    if isinstance(pole, str):
+        pole = pole.lower()
+        if "tech" in pole: return "Tech"
+        elif "ops" in pole: return "Ops"
+        elif "g&a" in pole or "ga" in pole: return "G&A"
+        elif "sales" in pole: return "Sales"
+        elif "market" in pole: return "Marketing"
+        elif "codir" in pole: return "CODIR"
+        elif "uk" in pole: return "UK"
+    return "Autre"
 
+df["Pôle regroupé"] = df["Pôle associé"].apply(regroup_pole)
+df["Année arrivée"] = df["Date d'arrivée"].dt.year
+df["Mois arrivée"] = df["Date d'arrivée"].dt.to_period("M")
+df["Année fin"] = df["Date de fin (si applicable)"].dt.year
+df["Mois fin"] = df["Date de fin (si applicable)"].dt.to_period("M")
+df_sorties["Année fin"] = df_sorties["Date de départ prévue"].dt.year
+df_sorties["Mois fin"] = df_sorties["Date de départ prévue"].dt.to_period("M")
+
+# Fonction d'affichage
 def plot_bar(data, x, y, color=None, barmode='group', title=""):
     fig = px.bar(data, x=x, y=y, color=color, barmode=barmode, title=title)
     st.plotly_chart(fig, use_container_width=True)
 
-# === MAIN ===
-df = load_data()
-df_sorties = load_sorties()
+# ========== INTERFACE ==========
+st.title("📊 Dashboard RH — Arrivées & Sorties")
 
-df["Pôle regroupé"] = df["Pôle associé"].apply(regroup_pole)
-df["Année arrivée"] = df["Date d'arrivée"].dt.year
-df["Année fin"] = df["Date de fin (si applicable)"].dt.year
-df["Mois arrivée"] = df["Date d'arrivée"].dt.to_period("M").astype(str)
-
-# === ENTRÉES / SORTIES ===
-entrees = df[~df["Date d'arrivée"].isna()].copy()
-entrees["Année"] = entrees["Année arrivée"]
-entrees["Mouvement"] = "Entrée"
-
-sorties = df[~df["Date de fin (si applicable)"].isna()].copy()
-sorties["Année"] = sorties["Année fin"]
-sorties["Mouvement"] = "Sortie"
-
-entrees_sorties = pd.concat([
-    entrees[["Année", "Mouvement"]],
-    sorties[["Année", "Mouvement"]]
-])
-entrees_sorties = entrees_sorties.value_counts().reset_index(name="Nombre")
-
-# === KPI TURNOVER (onglet "Sorties") ===
-df_sorties["Année départ"] = df_sorties["Date de départ prévue"].dt.year
-turnover_type = df_sorties.groupby(["Année départ", "Type de départ"]).size().reset_index(name="Nombre")
-
-# === DASHBOARD ===
-tab1, tab2 = st.tabs(["Vue annuelle", "Vue mensuelle"])
+tab1, tab2 = st.tabs(["📈 KPIs annuels", "📉 KPIs mensuels"])
 
 with tab1:
-    st.subheader("📊 Effectifs par contrat et par an")
-    effectifs_contrat = df.groupby(["Année arrivée", "Type de contrat"]).size().reset_index(name="Effectif")
-    plot_bar(effectifs_contrat, x="Année arrivée", y="Effectif", color="Type de contrat")
+    col1, col2 = st.columns(2)
 
-    st.subheader("📈 Entrées / Sorties par an")
-    plot_bar(entrees_sorties, x="Année", y="Nombre", color="Mouvement")
+    # Effectifs par type de contrat / an
+    with col1:
+        kpi = df.groupby(["Année arrivée", "Type de contrat"]).size().reset_index(name="Effectif")
+        plot_bar(kpi, x="Année arrivée", y="Effectif", color="Type de contrat", title="Effectifs par contrat et par an")
 
-    st.subheader("📉 Turnover par type de départ (onglet Sorties)")
-    plot_bar(turnover_type, x="Année départ", y="Nombre", color="Type de départ")
+    # Entrées et sorties par an
+    with col2:
+        entrees = df[df["Année arrivée"].notna()].groupby(["Année arrivée", "Type de contrat"]).size().reset_index(name="Nombre")
+        entrees["Mouvement"] = "Entrée"
+        entrees = entrees.rename(columns={"Année arrivée": "Année"})
+
+        sorties = df[df["Année fin"].notna()].groupby(["Année fin", "Type de contrat"]).size().reset_index(name="Nombre")
+        sorties["Mouvement"] = "Sortie"
+        sorties = sorties.rename(columns={"Année fin": "Année"})
+
+        entrees_sorties = pd.concat([entrees, sorties])
+        plot_bar(entrees_sorties, x="Année", y="Nombre", color="Mouvement", title="Entrées / Sorties par contrat et par an")
+
+    # Turnover par pôle
+    with col1:
+        base = df[df["Type de contrat"] == "CDI"]
+        effectifs_pole = base.groupby(["Année arrivée", "Pôle regroupé"]).size().reset_index(name="Effectif")
+        sorties_pole = base[base["Année fin"].notna()].groupby(["Année fin", "Pôle regroupé"]).size().reset_index(name="Départs")
+        turnover = pd.merge(effectifs_pole, sorties_pole, left_on=["Année arrivée", "Pôle regroupé"], right_on=["Année fin", "Pôle regroupé"], how="outer").fillna(0)
+        turnover["Turnover"] = (turnover["Départs"] / turnover["Effectif"]).round(2)
+        plot_bar(turnover, x="Année arrivée", y="Turnover", color="Pôle regroupé", title="Turnover CDI par pôle")
 
 with tab2:
-    st.subheader("📆 Effectifs par contrat et par mois")
-    effectifs_mois = df.groupby(["Mois arrivée", "Type de contrat"]).size().reset_index(name="Effectif")
-    plot_bar(effectifs_mois, x="Mois arrivée", y="Effectif", color="Type de contrat", barmode="stack", title="Effectifs mensuels")
+    col1, col2 = st.columns(2)
 
+    # Effectifs par type de contrat / mois
+    with col1:
+        kpi = df.groupby(["Mois arrivée", "Type de contrat"]).size().reset_index(name="Effectif")
+        kpi["Mois arrivée"] = kpi["Mois arrivée"].astype(str)
+        plot_bar(kpi, x="Mois arrivée", y="Effectif", color="Type de contrat", title="Effectifs par contrat et par mois")
+
+    # Entrées et sorties par mois
+    with col2:
+        entrees = df[df["Mois arrivée"].notna()].groupby(["Mois arrivée", "Type de contrat"]).size().reset_index(name="Nombre")
+        entrees["Mouvement"] = "Entrée"
+        entrees = entrees.rename(columns={"Mois arrivée": "Mois"})
+
+        sorties = df[df["Mois fin"].notna()].groupby(["Mois fin", "Type de contrat"]).size().reset_index(name="Nombre")
+        sorties["Mouvement"] = "Sortie"
+        sorties = sorties.rename(columns={"Mois fin": "Mois"})
+
+        entrees_sorties = pd.concat([entrees, sorties])
+        entrees_sorties["Mois"] = entrees_sorties["Mois"].astype(str)
+        plot_bar(entrees_sorties, x="Mois", y="Nombre", color="Mouvement", title="Entrées / Sorties par contrat et par mois")
 
