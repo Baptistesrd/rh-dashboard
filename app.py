@@ -17,16 +17,15 @@ def load_data():
 
 df, df_sorties = load_data()
 
-# Nettoyage des colonnes
+# Nettoyage
 df.columns = df.columns.str.strip()
 df_sorties.columns = df_sorties.columns.str.strip()
 
-# Transformation des dates
 df["Date d'arrivée"] = pd.to_datetime(df["Date d'arrivée"], dayfirst=True, errors="coerce")
 df["Date de fin (si applicable)"] = pd.to_datetime(df["Date de fin (si applicable)"], dayfirst=True, errors="coerce")
 df_sorties["Date de départ prévue"] = pd.to_datetime(df_sorties["Date de départ prévue"], dayfirst=True, errors="coerce")
 
-# Fonction pour regrouper les pôles
+# Regroupement des pôles
 def regroup_pole(pole):
     if isinstance(pole, str):
         pole = pole.lower()
@@ -78,14 +77,20 @@ with tab1:
         entrees_sorties = pd.concat([entrees, sorties])
         plot_bar(entrees_sorties, x="Année", y="Nombre", color="Mouvement", title="Entrées / Sorties par contrat et par an")
 
-    # Turnover par pôle
+    # Turnover CDI global basé sur l'onglet 'Sorties'
     with col1:
-        base = df[df["Type de contrat"] == "CDI"]
-        effectifs_pole = base.groupby(["Année arrivée", "Pôle regroupé"]).size().reset_index(name="Effectif")
-        sorties_pole = base[base["Année fin"].notna()].groupby(["Année fin", "Pôle regroupé"]).size().reset_index(name="Départs")
-        turnover = pd.merge(effectifs_pole, sorties_pole, left_on=["Année arrivée", "Pôle regroupé"], right_on=["Année fin", "Pôle regroupé"], how="outer").fillna(0)
-        turnover["Turnover"] = (turnover["Départs"] / turnover["Effectif"]).round(2)
-        plot_bar(turnover, x="Année arrivée", y="Turnover", color="Pôle regroupé", title="Turnover CDI par pôle")
+        base_cdi = df[df["Type de contrat"] == "CDI"]
+        total_cdi = base_cdi["Nom"].nunique()
+
+        sorties_cdi_reelles = df_sorties[
+            (df_sorties["Type de contrat"] == "CDI") &
+            (df_sorties["Type de départ"].str.strip().str.lower() != "fin de contrat") &
+            (df_sorties["Nom"].notna())
+        ]
+        nb_sorties_cdi = sorties_cdi_reelles["Nom"].nunique()
+        turnover_cdi = round(nb_sorties_cdi / total_cdi, 2)
+
+        st.metric("Turnover CDI global", f"{turnover_cdi * 100:.0f}% ({nb_sorties_cdi} départs / {total_cdi} CDI)")
 
 with tab2:
     col1, col2 = st.columns(2)
@@ -96,17 +101,21 @@ with tab2:
         kpi["Mois arrivée"] = kpi["Mois arrivée"].astype(str)
         plot_bar(kpi, x="Mois arrivée", y="Effectif", color="Type de contrat", title="Effectifs par contrat et par mois")
 
-    # Entrées et sorties par mois
+    # Entrées et sorties mensuelles — tableau
     with col2:
-        entrees = df[df["Mois arrivée"].notna()].groupby(["Mois arrivée", "Type de contrat"]).size().reset_index(name="Nombre")
-        entrees["Mouvement"] = "Entrée"
-        entrees = entrees.rename(columns={"Mois arrivée": "Mois"})
+        entrees = df[df["Mois arrivée"].notna()].groupby(["Mois arrivée", "Type de contrat"]).size().reset_index(name="Entrées")
+        sorties = df[df["Mois fin"].notna()].groupby(["Mois fin", "Type de contrat"]).size().reset_index(name="Sorties")
 
-        sorties = df[df["Mois fin"].notna()].groupby(["Mois fin", "Type de contrat"]).size().reset_index(name="Nombre")
-        sorties["Mouvement"] = "Sortie"
-        sorties = sorties.rename(columns={"Mois fin": "Mois"})
+        entrees["Mois"] = entrees["Mois arrivée"].astype(str)
+        sorties["Mois"] = sorties["Mois fin"].astype(str)
 
-        entrees_sorties = pd.concat([entrees, sorties])
-        entrees_sorties["Mois"] = entrees_sorties["Mois"].astype(str)
-        plot_bar(entrees_sorties, x="Mois", y="Nombre", color="Mouvement", title="Entrées / Sorties par contrat et par mois")
+        table = pd.merge(entrees[["Mois", "Type de contrat", "Entrées"]],
+                         sorties[["Mois", "Type de contrat", "Sorties"]],
+                         on=["Mois", "Type de contrat"],
+                         how="outer").fillna(0)
 
+        table = table.sort_values("Mois")
+        table["Entrées"] = table["Entrées"].astype(int)
+        table["Sorties"] = table["Sorties"].astype(int)
+
+        st.dataframe(table, use_container_width=True)
